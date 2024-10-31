@@ -1,0 +1,375 @@
+---
+title: "LocalizationTaskAnalysis"
+author: "Zeynep Bolluk, Rowan Mohamed, Esma Sakalli, Katharina Trant"
+date: "2024-01-04"
+output: html_document
+---
+# Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+Import all necessary packages.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(GGally)
+library(ggcorrplot)
+library(reshape2)
+library(plotly)
+```
+
+# Data preprocessing
+
+Set working directory, load all the localization data, clean it and combine it into one data frame. Also load the grasping data for later comparisons.
+
+```{r Include = FALSE, eval=FALSE}
+#this is for combining data files and taking only the last 3 blocks. If you're using the combined version, don't run this shell
+# Set working directory to the folder containing the CSV files
+setwd("C:/Users/Dell/Desktop/Courses/StudyProject/analysis/localizationTask/localization")
+file_list <- list.files(pattern = "_localization*")
+localization_data <- data.frame()
+
+for (file in file_list) {
+participant_id <- strsplit(file, "_")[[1]][1]
+stimuli_file <- paste0(participant_id, "_stimuli.csv")
+data_response <- read.csv(file, header = FALSE)
+data_stimuli <- read.csv(stimuli_file, header = FALSE)
+
+if (nrow(data_response) > 3) {
+data_response <- tail(data_response, n = 3)
+data_stimuli <- tail(data_stimuli, n = 3)
+} else {
+data_response <- tail(data_response, n = nrow(data_response))
+data_stimuli <- tail(data_stimuli, n = nrow(data_stimuli))
+}
+
+response <- as.vector(t(data_response))
+stimuli <- as.vector(t(data_stimuli))
+
+block <- c()
+for (i in 1:nrow(data_response)){
+curr_block <- c(rep(i, ncol(data_response[i,])))
+block <- c(block, curr_block)
+}
+
+dummy <- data.frame(response)
+dummy$stimuli <- stimuli
+dummy$participant_id <- participant_id
+dummy$block <- block
+
+localization_data <- rbind(localization_data, dummy)
+}
+
+localization_data$participant_id <- as.numeric(localization_data$participant_id)
+localization_data <- localization_data[order(localization_data$participant_id), ]
+
+# Add the code to select the last 3 blocks for each participant
+localization_data <- localization_data %>%
+group_by(participant_id) %>%
+arrange(participant_id, block) %>%
+slice_tail(n = 3) %>%
+ungroup()
+
+#exclude participant 23 in every data set as they have only auditory data
+localization_data <- 
+  filter(localization_data, 
+         participant_id != 23)
+
+#exclude participant 23 as they have only auditory, there was a testing with a 4th Block of tactile - exclude the 4th Block
+combined_data <- 
+  filter(combined_data, 
+         participant_id != 23,
+         block != 4)
+
+# Save the combined data frame as a CSV file
+row.names(localization_data) <- NULL
+write.csv(localization_data, "localization_data.csv")
+
+```
+
+```{r include=FALSE}
+# Set working directory to the folder containing the CSV files
+setwd("/Users/katharinatrant/Desktop/Uni/Master/Semester 3/Study Project/Analysis/Data/Localization")
+
+# load localization data
+localization_data <- read.csv("localization_data.csv")
+
+#load grasping data for comparison later
+combined_data <- read.csv("combined.csv")
+
+# Create inverted %in% function
+`%ni%` <- Negate(`%in%`)
+
+# fix the participant id
+localization_data <- localization_data %>% group_by(participant_id) %>% mutate(participant_id = cur_group_id())
+
+# Reorder columns putting 'participant_id' at the beginning
+localization_data <- localization_data[, c("participant_id", setdiff(names(localization_data), "participant_id"))]
+
+```
+
+# Summary statistics & visualization
+
+## Mean accuracies
+
+```{r}
+# Mean accuracy all trials
+# Compute the number of lines where "response" and "stimuli" are equal
+num_equal <- sum(localization_data$response == localization_data$stimuli)
+# Compute the total number of lines
+num_total <- nrow(localization_data)
+# Compute the percentage of lines where "response" and "stimuli" are equal
+percent_equal <- (num_equal / num_total) * 100
+# Print the result
+cat(sprintf("The accuracy over all trials is %.2f%%.", percent_equal))
+
+# Mean accuracy all trials per participant
+# Compute the percentage of lines where "response" and "stimuli" are equal for each participant
+accuracy <- aggregate(localization_data$response == localization_data$stimuli, by = list(localization_data$participant_id), mean)
+# Rename the columns of the result
+colnames(accuracy) <- c("participant_id", "accuracy")
+# Print the result
+cat("\n\n")
+summary(accuracy$accuracy)
+
+# Boxplot mean accuracy
+ggplot(accuracy, aes(y = accuracy)) +
+  geom_boxplot() +
+  labs(y = "Mean accuracy") +
+  ggtitle("Boxplot of mean accuracies")
+```
+##Mean accuracy by block
+```{r}
+accuracybyblock <- aggregate(localization_data$response == localization_data$stimuli, by = list(localization_data$block),mean)
+
+colnames(accuracybyblock) <- c('block_number', 'mean_accuracy') 
+
+accuracybyblock$mean_accuracy_perc <- (accuracybyblock$mean_accuracy)* 100
+
+#graph
+
+accuracy_per_block <- accuracybyblock %>% ggplot(aes(x = block_number, y = mean_accuracy_perc)) +
+  geom_point() +
+  geom_line() +
+  labs(
+    title = "Percentage of Mean Accuracy per block in Localization Task", 
+    x = "\n Block number", 
+    y = "Mean accuracy \n"
+    ) +
+  theme_linedraw() + 
+  theme(plot.title = element_text(face = "bold"), legend.position = "right", legend.title = element_blank()) +
+  scale_x_continuous(breaks = c(1:8)) +
+  scale_y_continuous(limits = c(0, 100))
+
+accuracy_per_block
+
+
+```
+
+```{r}
+# Turning values into percentage
+accuracy$accuracy_perc <- accuracy$accuracy*100
+
+# Create a new variable to mark participant with accuracy below 90
+accuracy$color <- ifelse(accuracy$accuracy_perc < 90, "red", "default")
+
+# Visualize the accuracies
+ggplot(accuracy, aes(x = as.factor(participant_id), y = accuracy_perc, fill = color)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("red" = "#F8766D", "default" = "#545454")) +
+  labs(title = "Mean accuracy by participant", x = "Participant ID", y = "Mean accuracy in percent") +
+  coord_cartesian(ylim = c(40,100)) +
+  geom_hline(yintercept = 90, color = "red", linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  guides(fill = FALSE)
+
+
+```
+
+
+
+## Direction confusion
+
+Create a confusion matrix with counts and probabilities.
+
+```{r}
+# Create a table of counts for each combination of stimuli and response
+count_table <- table(localization_data$stimuli, localization_data$response)
+
+# Put "no response" column last
+count_table <- count_table[,c(1,2,4,5,3)]
+
+# Print the result
+print(count_table)
+```
+
+¢
+```{r}
+# Convert the table into a data frame for ggplot2
+ct_table <- count_table[, -5] # remove "no response"
+count_df <- as.data.frame(melt(ct_table))
+
+# Convert Var1 and Var2 to character
+count_df$Var1 <- as.character(count_df$Var1)
+count_df$Var2 <- as.character(count_df$Var2)
+
+# Reorder the factor levels in Var2
+count_df$Var2 <- factor(count_df$Var2, levels = c("down", "left", "right", "up", "no response"))
+
+# Add a new column specifying whether or not each cell is on the diagonal
+# Exclude "no response" column from the diagonal
+count_df$on_diagonal <- count_df$Var1 == count_df$Var2 & count_df$Var2 != "no response"
+count_df <- count_df %>% rename(count = value)
+
+# Create the plot
+confusion_counts <- ggplot(count_df, aes(Var2, Var1, fill = count)) +
+  geom_tile() +
+  scale_fill_gradient(low = "steelblue", high = "orange") +
+  geom_text(aes(label = round(count, 3)), size = 4) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Response", y = "Direction command") +
+  ggtitle("Count of vibration signal misinterpretation")
+confusion_counts
+
+#ggsave(paste0(SAVE,"confusion_counts.png"), plot = confusion_counts, dpi = 600)
+```
+
+```{r}
+# Calculate how often 2 locations got confused.
+up_right <- count_table["up","right"] + count_table["right","up"]
+up_down <- count_table["up","down"] + count_table["down","up"]
+up_left <- count_table["up","left"] + count_table["left","up"]
+right_down <- count_table["right","down"] + count_table["down","right"]
+right_left <- count_table["right","left"] + count_table["left","right"]
+down_left <- count_table["down","left"] + count_table["left","down"]
+noresponse <- sum(count_table[, "no response"])
+right <- count_table["right", "right"]
+left <- count_table["left", "left"]
+
+cat(sprintf("Up and Right got confused %i times. \nUp and Down got confused %i times. \nUp and Left got confused %i times. \nRight and Down got confused %i times. \nRight and Left got confused %i times. \nDown and Left got confused %i times. \nIn %i trials the participant answered with no response. \nThe Down vibration motor was identified correctly most frequently, namely %i times. \nOverall participants correclty identified the Up motor the least. It was identified correctly %i times.", 
+            up_right, up_down, up_left, right_down, right_left, down_left, noresponse, right, left))
+```
+
+Now for probabilities.
+
+```{r}
+# Create a confusion matrix by dividing the count table by the row sums
+confusion_matrix <- prop.table(count_table, 1)
+
+# Print the result
+confusion_matrix
+```
+
+```{r}
+# Convert the matrix into a data frame for ggplot2
+confusion_df <- as.data.frame(melt(confusion_matrix))
+
+# Convert Var1 and Var2 to character
+confusion_df$Var1 <- as.character(confusion_df$Var1)
+confusion_df$Var2 <- as.character(confusion_df$Var2)
+
+# Reorder the factor levels in Var2
+confusion_df$Var2 <- factor(confusion_df$Var2, levels = c("down", "left", "right", "up", "no response"))
+
+# Add a new column specifying whether or not each cell is on the diagonal
+# Exclude "no response" column from the diagonal
+confusion_df$on_diagonal <- confusion_df$Var1 == confusion_df$Var2 & confusion_df$Var2 != "no response"
+
+# Create the heatmap
+confusion_matrix_perc <- ggplot(confusion_df, aes(Var2, Var1, fill = on_diagonal)) +
+  geom_tile(aes(fill = on_diagonal)) +
+  scale_fill_gradient(low = "steelblue", high = "orange") +
+  geom_text(aes(label = round(value, 3)), size = 4) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Direction response", y = "Direction command") +
+  ggtitle("Direction confusions in %") + 
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+#confusion_matrix_perc
+
+confusion_counts <- ggplot(count_df, aes(Var2, Var1, fill = count)) +
+  geom_tile() +
+  scale_fill_gradient(low = "steelblue", high = "orange") +
+  geom_text(aes(label = round(count, 3)), size = 4) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Response", y = "Direction command") +
+  ggtitle("Count of vibration signal misinterpretation")
+confusion_counts
+
+#ggsave(paste0(SAVE,"confusion_matrix_perc.png"), plot = confusion_matrix_perc, dpi = 600)
+
+
+# create heatmap with ggcorrplot
+confusion_mat <- confusion_matrix[, -5] # remove "no response"
+confusions <- ggcorrplot(confusion_mat, lab=TRUE, digits=4, colors=c("#6D9EC1", "white", "#E46726"))
+confusions
+
+#ggsave(paste0(SAVE,"confusion_mat_cc.png"), plot = confusions, dpi = 600)
+```
+
+```{r}
+# Calculate how often 2 locations got confused.
+up_right <- confusion_matrix["up","right"] + confusion_matrix["right","up"]
+up_down <- confusion_matrix["up","down"] + confusion_matrix["down","up"]
+up_left <- confusion_matrix["up","left"] + confusion_matrix["left","up"]
+right_down <- confusion_matrix["right","down"] + confusion_matrix["down","right"]
+right_left <- confusion_matrix["right","left"] + confusion_matrix["left","right"]
+down_left <- confusion_matrix["down","left"] + confusion_matrix["left","down"]
+noresponse <- sum(confusion_matrix[, "no response"])
+right <- confusion_matrix["right", "right"]
+left <- confusion_matrix["left", "left"]
+
+cat(sprintf("Up and Right got confused ~%.2f%% of the time. \nUp and Down got confused ~%.2f%% of the time. \nUp and Left got confused ~%.2f%% of the time. \nRight and Down got confused ~%.2f%% of the time. \nRight and Left got confused ~%.2f%% of the time. \nDown and Left got confused ~%.2f%% of the time. \nIn ~%.2f%% of trials the participant answered with no response. \nThe Down vibration motor was identified with the highest accuracy of ~%.2f%%. \nOverall participants identified the Up motor with the lowest acccuracy of ~%.2f%%.", up_right, up_down, up_left, right_down, right_left, down_left, noresponse, right, left))
+```
+
+## Predicting grasping performance with localization performance
+
+### Reaction times
+
+```{r}
+# filter for only successes in tactile condition
+mixed_data <- combined_data %>% filter(success=="success", condition=="tactile") %>% group_by(participant_id) %>% summarize(mean_time = mean(time)*1000)
+mixed_data$accuracy <- accuracy$accuracy
+
+
+# scatterplot: y = grasping_RTs, x = mean acc (first 3 blocks)
+mixed_data %>%
+  ggplot(aes(x = accuracy, y = mean_time, color= accuracy)) +
+  geom_point() +
+  labs(
+    title = "Mean trial times per mean localization accuracy", 
+    x = "\n Mean accuracy (%)", 
+    y = "Mean trial times (ms) \n"
+    ) +
+  theme_linedraw() + 
+  theme(plot.title = element_text(face = "bold"), legend.position = "right", legend.title = element_blank()) +
+  scale_x_continuous(breaks = round(mixed_data$accuracy, 1))
+
+```
+
+```{r}
+# barplot: y = mean RT, x = mean accuracy 
+mixed_data %>% group_by(accuracy) %>% summarize(mean_time = mean(mean_time))
+mixed_data %>% group_by(accuracy) %>% summarize(mean_time = mean(mean_time)) %>%
+  ggplot(aes(x = accuracy, y = mean_time)) +
+  geom_bar(stat = "identity", position = "dodge", colour="#CC9900", fill="#FFCC66") +
+  labs(
+    title = "Mean trial times per mean localization accuracy", 
+    x = "Mean accuracy (%)", 
+    y = "Mean trial times (ms) \n",
+    ) +
+  theme_linedraw() +
+  scale_x_continuous(breaks = round(mixed_data$accuracy, 1)) +
+  scale_y_continuous(breaks = scales::pretty_breaks())
+```
+```{r}
+# test for task performance correlation
+cor.test(mixed_data$mean_time, mixed_data$accuracy)
+```
+

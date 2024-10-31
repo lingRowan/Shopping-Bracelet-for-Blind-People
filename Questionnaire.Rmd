@@ -1,0 +1,475 @@
+---
+title: "OptiVisT questionnaire analysis"
+author: "Rowan"
+date: "2023-12-18"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+
+```
+
+# Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+Import all necessary packages.
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(psych)
+library(corrr)
+library(ggcorrplot)
+library(FactoMineR)
+```
+
+Load the data.
+
+```{r}
+# Set working directory to folder with localization files
+SAVE <- paste0(getwd(), "/Plots/")
+
+# Read in the data
+questionnaire_data <- read.csv("Post-Experiment-Fragebogen - Sheet1 eng.csv")
+```
+
+# Summary statistics
+
+We get summary stats for each question and plot them in a box plot. Some additional comments: for analysis we rather take the median instead of the mean into account, as the mean as central tendency measure might not capture the data's characteristics, e.g. when there are many 1s and 5s, the mean is 3, thus the answer seems to be neutral. The median in fact does not solve that, but might give a better picture (Sullivan & Artino, 2014). Furthermore, Likert scale (ordinal) data usually cannot be seen as interval data, but parametric tests can be used with sufficient sample size as they have higher power (Norman, 2010; de Winter & Dodou, 2010).
+
+```{r}
+summary(questionnaire_data[,2:12])
+
+```
+
+```{r}
+# Plot each question with box plot
+for (col in colnames(questionnaire_data)[2:12]) {
+  plot_data <- data.frame(Response = questionnaire_data[, col], Question =
+                            gsub("\\.", " ", col))
+  plot_title <- gsub("^X", "", col)
+  plot_title <- gsub("\\.", " ", plot_title)
+
+  plot <- ggplot(plot_data, aes(x = factor(1), y = Response)) +
+    geom_boxplot(fill = "lightblue", color = "black", outlier.shape = NA) +
+    geom_jitter(width = 0.5, height = 0, size = 3, alpha = 0.6, color = "red") +  # add points
+    labs(title = plot_title, x = "", y = "Response") +
+    #theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    ylim(1, 5)  # set y-axis limits to 1 and 5
+
+  print(plot)
+}
+```
+
+# Questionnaire constructs
+
+We perform latent variable inference via FA and PCA to extract underlying constructs from numerical responses to the questionnaire items.
+
+## Factor Analysis
+
+``` r
+```
+
+```{r}
+# remove indices
+rownames(data) <- NULL
+
+fa_model <- fa(data, nfactors = 4, rotate = "varimax", fm = "pa", max.iter = 1000)
+fa_model
+```
+
+Conduct factor analysis to explore the underlying structure of the questionnaire. This will help confirm or refine the identified constructs.
+
+```{r, eval = FALSE, include = FALSE}
+fa_data <- na.omit(questionnaire_data)[2:12]
+rownames(fa_data) <- NULL
+
+determine_factor <- function(data, data_col){
+  ### Check an FA item for its factor by changing coding direction of the item. ###
+  
+  # sanity check
+  sanity <- data
+  col = sanity[data_col][,1]
+  
+  # 
+  for (i in seq_along(col)) {
+    val <- col[i]
+    ifelse(val == 1, col[i] <- 5, 
+           ifelse(val == 2, col[i] <- 4, 
+                  ifelse(val == 4, col[i] <- 2, 
+                         ifelse(val == 5, col[i] <- 1, col[i] <- 3))))
+  }
+  sanity[data_col] <- col
+  
+  # FA
+  loadings_original <- fa(data, nfactors = 4, rotate = "varimax", fm = "gls", max.iter = 1000)
+  loadings_sanity <- fa(sanity, nfactors = 4, rotate = "varimax", fm = "gls", max.iter = 1000)
+  print(loadings_original)
+  print(loadings_sanity)
+}
+
+# now do that for each question / item
+for (name in colnames(fa_data)) {
+  print(name)
+  determine_factor((fa_data), name)
+}
+
+
+```
+
+```{r}
+# remove indices
+rownames(data) <- NULL
+
+fa_model <- fa(data, nfactors = 3, rotate = "varimax", fm = "pa", max.iter = 1000)
+fa_model
+
+```
+
+```{r}
+# Data for the first factor analysis
+ss_loadings_1 <- c(2.84, 1.47, 1.13, 0.94)
+proportion_var_1 <- c(0.26, 0.13, 0.10, 0.09)
+cumulative_var_1 <- c(0.26, 0.39, 0.49, 0.58)
+proportion_explained_1 <- c(0.44, 0.23, 0.18, 0.15)
+cumulative_proportion_1 <- c(0.44, 0.68, 0.85, 1.00)
+
+# Data for the second factor analysis
+ss_loadings_2 <- c(2.38, 2.17, 0.87)
+proportion_var_2 <- c(0.22, 0.20, 0.08)
+cumulative_var_2 <- c(0.22, 0.41, 0.49)
+proportion_explained_2 <- c(0.44, 0.40, 0.16)
+cumulative_proportion_2 <- c(0.44, 0.84, 1.00)
+
+# Factor names
+factors <- c('PA1', 'PA2', 'PA3', 'PA4')
+
+# Plotting
+par(mfrow = c(2, 2))
+
+# SS Loadings
+barplot(rbind(ss_loadings_1, ss_loadings_2), beside = TRUE, col = c("skyblue", "lightgreen"),
+        ylim = c(0, 3), main = "SS Loadings", xlab = "Factors", ylab = "SS Loadings",
+        legend.text = c("FA 1", "FA 2"), args.legend = list(x = "topright"))
+
+# Proportion Var
+barplot(rbind(proportion_var_1, proportion_var_2), beside = TRUE, col = c("skyblue", "lightgreen"),
+        ylim = c(0, 0.3), main = "Proportion Var", xlab = "Factors", ylab = "Proportion Var",
+        legend.text = c("FA 1", "FA 2"), args.legend = list(x = "topright"))
+
+# Cumulative Var
+barplot(rbind(cumulative_var_1, cumulative_var_2), beside = TRUE, col = c("skyblue", "lightgreen"),
+        ylim = c(0, 1), main = "Cumulative Var", xlab = "Factors", ylab = "Cumulative Var",
+        legend.text = c("FA 1", "FA 2"), args.legend = list(x = "topright"))
+
+# Proportion Explained
+barplot(rbind(proportion_explained_1, proportion_explained_2), beside = TRUE, col = c("skyblue", "lightgreen"),
+        ylim = c(0, 0.5), main = "Proportion Explained", xlab = "Factors", ylab = "Proportion Explained",
+        legend.text = c("FA 1", "FA 2"), args.legend = list(x = "topright"))
+
+# Cumulative Proportion
+barplot(rbind(cumulative_proportion_1, cumulative_proportion_2), beside = TRUE, col = c("skyblue", "lightgreen"),
+        ylim = c(0, 1), main = "Cumulative Proportion", xlab = "Factors", ylab = "Cumulative Proportion",
+        legend.text = c("FA 1", "FA 2"), args.legend = list(x = "topright"))
+
+```
+
+*Interpretation:* We choose to select the questions of each factor with correlation equal or above 0.2 (at least slight positive correlation) and therefore come up with the following groupings:
+
+**PA1: user confidence**\
+- I.relied.on.the.changes.in.the.strength.of.the.vibration.signals.to.grasp.an.object. 0.86\
+- I.felt.confident.using.the.tactile.bracelet.to.grab.an.object. 0.65\
+- I felt safe during the task 0.51
+
+**PA2: comfort**
+
+\- I found it easy to move my hand according to the bracelet's vibration signals 0.76
+
+\- I was able to intuitively use the tactile bracelet's vibration cues to control my hand movement 0.59
+
+\- It was easier for me to grasp an object with the signals from the tactile bracelet than with auditory instruction 0.49
+
+**PA3: learning / intuition**\
+- Mainly.my.intuition.guided.my.hand.movement.during.the.task. 0.32\
+- I.was.afraid.of.hitting.the.shelf.or.objects.during.the.task. 0.24\
+- I.felt.secure.during.the.task. 0.20
+
+## Principal Component Analysis
+
+We perform PCA (dimensionality reduction) to extract the PCs that explain more than half the variance in the data, possible more. In this case, 2 PCs explain \~57%, 3 PCs \~70% of the variance in the data.
+
+```{r}
+# function for displaying each PC and its ordered correlation coefficients
+# returns the correlation matrices after PCA and reconstructed
+extract_PC <- function(data, n_comps, thres=-1){
+  # normalize data and perform PCA
+  corr_matrix <- cor(scale(data))
+  data.pca <- princomp(corr_matrix)
+  print(summary(data.pca))
+  # extract correlation loadings
+  loadings <- data.pca$loadings[, 0:n_comps]
+  
+  # output each PC
+  for (i in 1:n_comps) { 
+    print(data.frame(item=loadings[,0], PC=loadings[,i]) %>% arrange(desc(PC)) %>% filter(PC >= thres))
+  }
+  
+  # use different PCA method for data reconstruction
+  res <- prcomp(data, scale. = TRUE)
+  corr_matrix_reconstructed <- cor(res$x[, 0:n_comps] %*% t(res$rotation[, 0:n_comps]))
+  
+  return(list("pca" = res, "loadings" = loadings, "normal" = corr_matrix, "reconstructed" = corr_matrix_reconstructed))
+}
+
+# extract 3 PCs
+res <- extract_PC(data, 3)
+res
+```
+
+```{r}
+# shorten question names
+qs <- c("hit_shelf", "secure", "vib_uncomfortable", "usage", "practical", "relevant", 'intuition', 'tac_aud', 'tactile', 'confident', 'inpractical')
+
+pcs <- data.frame(Question = rownames(res$loadings), PC1=res$loadings[,1], PC2=res$loadings[,2], PC3=res$loadings[,3])
+# convert to long format
+pcs <- pcs %>% pivot_longer(cols = starts_with("PC"), names_to = "PC", values_to = "Value")
+pcs$Question <- factor(pcs$Question, levels = rownames(res$loadings))
+
+# Create a faceted barplot
+loads <- ggplot(pcs, aes(x = Question, y = Value, fill = PC)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  labs(title = "Component loadings of first 3 PCs",
+       x = NULL,
+       y = "Correlation coefficient value") +
+  facet_wrap(~ PC, scales = "free_y", ncol = 1) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 60, hjust = 1)) +
+  scale_x_discrete(labels = qs)
+loads
+
+#ggsave(paste0(SAVE,"comp_loadings.png"), plot = loads, dpi = 600)
+res
+```
+
+We then plot the correlation matrices after PCA, of the reconstructed data and re-ordered (using hierarchical clustering) to visualize the PCs (Kording et al., 2018).
+
+```{r}
+# comfortable, intensity_cons, feel_vib, motor_pos, reliance, confidence, instr_wait
+
+# plot corr matrix after pca
+pca_before <- ggcorrplot(res$normal) + 
+  scale_x_discrete(labels = qs) +
+  scale_y_discrete(labels = qs)
+pca_before
+
+# plot reconstructed corr matrix
+pca_after <- ggcorrplot(res$reconstructed) + 
+  scale_x_discrete(labels = qs) +
+  scale_y_discrete(labels = qs)
+pca_after
+
+# Perform hierarchical clustering and get order
+hclust_result <- hclust(dist(res$reconstructed))
+order <- hclust_result$order # 10,17,4,7,1,2,13,15,6,3,8,16,5,12,14,9,11
+order <- c(10,4,7,1,2,9,11,6,3,8,5) # re-order for PC matching
+corr_reordered <- res$reconstructed[order,order]
+#reorder <- c(10,17,6,4,7,12,16,14,11,9,1,3,5,8,2,15,13) # 3 PCs
+#corr_reordered <- res$reconstructed[reorder,reorder]
+
+# plot re-ordered reconstructed corr matrix
+reordered <- ggcorrplot(corr_reordered) + 
+  scale_x_discrete(labels = qs[order]) +
+  scale_y_discrete(labels = qs[order])
+reordered
+
+#ggsave(paste0(SAVE,"corr_mat_reordered.png"), plot = reordered, dpi = 600)
+
+```
+
+### Interpretation
+
+**Question keys**\
+- 1 hit_shelf: I.was.afraid.of.hitting.the.shelf.or.objects.during.the.task.\
+- 2 secure: I.felt.save.during.the.task.\
+- 3 vib_uncomfortable: The.vibration.from.tactile.bracelet.felt.uncomfortable.on.my.hand.\
+- 4 practicle: I relied on the changes in the strength of the vibration signals to grasp an object\
+- 5 inpracticle: It was difficult for me to interpret the vibration signals from the tactile bracelet.\
+- 6 usage: can you imagine using such a device in your everyday life?\
+- 7 relevent: I found it easy to move my hand according to the bracelet's vibration signals.\
+- 8 Tactile: I was able to intuitively use the tactile bracelet's vibration cues to control my hand movement\
+- 9 Tac_aud: It.was easier for me to grasp an object with the signals from the tactile bracelet than with auditory instructions\
+- 10 intuition: Mainly.my.intuition.guided.my.hand.movement.during.the.task.\
+- 11 confidence: I.felt.confident.using.the.tactile.bracelet.to.grab.an.object.\
+
+### Visualize PCs
+
+```{r}
+# https://www.statology.org/principal-components-analysis-in-r/
+
+# bi-plot
+res$pca$x <- -1*res$pca$x
+
+
+biplot(res$pca, scale = 0, ylabs=qs) # 1 vs 2
+biplot(res$pca, choices = c(1, 3), scale = 0, ylabs=qs) # 1 vs 3
+biplot(res$pca, choices = c(2, 3), scale = 0, ylabs=qs) # 2 vs 3
+#res$pca
+res
+```
+
+# Summary statistics
+
+## Data preparation
+
+We clean the data and wrangle it into another format
+
+```{r}
+clean_data <- data.frame()
+for (col in colnames(questionnaire_data)[2:12]) {
+  questions <- data.frame(Response = questionnaire_data[, col], Question = gsub("\\.", " ", col))
+  title <- gsub("^X", "", col)
+  title <- gsub("\\.", " ", title)
+  clean_data <- rbind(clean_data, questions[-1,])
+}
+rownames(clean_data) <- NULL
+
+# rename one question (remove preceding 'X')
+#clean_data[clean_data$Question == "X I felt confident using the tactile bracelet to locate and grasp an object ",]$Question <- "I felt confident using the tactile bracelet to locate and grasp an object "
+clean_data
+```
+
+Add underlying constructs.
+
+```{r}
+coded_data <- clean_data
+
+# PC1: tactile signals, usability, interpretability
+usability <- c(
+  "The vibration of the tactile bracelet feels uncomfortable on my hand",
+  "It was easier for me to grasp an object with the signals from the tactile bracelet than with auditory instructions", 
+  "It was difficult for me to interpret the vibration signals from the tactile bracelet"
+)
+
+# PC2: experimental design, bracelet design, consistency
+task <- c(
+  "I relied on the changes in the strength of the vibration signals to grasp an object",
+  "I found it easy to move my hand according to the bracelet s vibration signals" 
+)
+
+# PC3: security, confidence, practice
+confidence <- c(
+  "I was afraid of hitting the shelf or objects during the task",
+  "I felt safe during the task",
+  "Mainly my intuition guided my hand movement during the task",
+  "I was able to intuitively use the tactile bracelet s vibration cues to control my hand movement",
+  "I could identify the vibration locations without much effort",
+  "The practice trials were sufficient to get comfortable with using the tactile feedback", 
+  "I felt confident using the tactile bracelet to grab an object"
+)
+
+coded_data$PC1 <- coded_data$Question %in% usability
+coded_data$PC2 <- coded_data$Question %in% task
+coded_data$PC3 <- coded_data$Question %in% confidence
+
+coded_data
+```
+
+### Coding direction
+
+For negative questions we are changing the coding direction, such that a higher value consistently represents higher agreement with the underlying construct, e.g. "The intensity of vibration varied strongly" responses will be reversed in order. Note: Grasping anticipation during the task under the experiment design construct is a bad thing.
+
+```{r}
+
+conditions <- coded_data$Question %in% c(
+  "It was difficult for me to interpret the vibration signals from the tactile bracelet ",
+  "The vibration of the tactile bracelet feels uncomfortable on my hand ",
+  "I was afraid of hitting the shelf or objects during the task "
+)
+
+# change coding direction
+coded_data$Response[conditions] <- 
+  ifelse(coded_data$Response[conditions] == 1, 5, 
+         ifelse(coded_data$Response[conditions] == 2, 4, 
+                ifelse(coded_data$Response[conditions] == 4, 2, 
+                       ifelse(coded_data$Response[conditions] == 5, 1, 3))))
+
+# rename questions for easier interpretability
+coded_data <- coded_data %>%
+  mutate(Question = case_when(
+    Question == "It was difficult for me to interpret the vibration signals from the tactile bracelet " ~ "It was easy for me to interpret the vibration signals from the tactile bracelet ",
+    Question == "The vibration of the tactile bracelet feels uncomfortable on my hand " ~ "The vibration of the tactile bracelet feels comfortable on my hand ",
+    Question == "I was afraid of hitting the shelf or objects during the task " ~ "I was not afraid of hitting the shelf or objects during the task ",
+    TRUE ~ Question
+  ))
+coded_data
+```
+
+```{r}
+pc1 <- coded_data %>% filter(PC1) %>% summarize(mean = mean(Response), sd=sd(Response))
+pc2 <- coded_data %>% filter(PC2) %>% summarize(mean = mean(Response), sd=sd(Response))
+pc3 <- coded_data %>% filter(PC3) %>% summarize(mean = mean(Response), sd=sd(Response))
+
+construct_eval <- data.frame(mean=c(pc1[,1],pc2[,1],pc3[,1]), sd=c(pc1[,2],pc2[,2],pc3[,2]), Construct=c("usability", "task", "confidence")) %>%
+  ggplot(aes(x=Construct, y = mean)) +
+  geom_bar(stat = "identity", position = "dodge", colour="#CC9900", fill="#FFCC66") +
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd), width=0.2) +
+  #geom_text(aes(label = round(mean, 2)), position = position_dodge(width = 1), vjust = 2, hjust=0.5) +
+  labs(
+    title = "Mean participant evaluation per construct", 
+    x = NULL, 
+    y = "Mean response (Likert-scale) \n",
+    ) +
+  theme_linedraw() +
+  scale_y_continuous(limits=c(0,6))
+construct_eval
+pc1
+pc2
+pc3
+
+#ggsave(paste0(SAVE,"construct_eval.png"), plot = construct_eval, dpi = 600)
+```
+
+\`\`\`{theme_linedraw() +} scale_y_continuous(limits=c(0,6)) construct_eval
+
+#ggsave(paste0(SAVE,"construct_eval.png"), plot = construct_eval, dpi = 600)
+
+\`\`\`
+
+*Interpretation:* Participants rated the usability of the bracelet lowest with a mean of
+
+|          |
+|---------:|
+| 2.091667 |
+
+(sd =
+
+|          |
+|---------:|
+| 1.229852 |
+
+), most certainly because some participants had a hard time correctly interpreting the vibration signals as motors directly on a bone spread the signal across larger areas. Task design and the usage of the bracelet in the specific task wasrated highest with
+
+|      |
+|-----:|
+| 4.45 |
+
+(sd = 0.8252349), indicating a generally good experimental design and adaptation to the bracelet. Confidence of using the bracelet was rated with 3.515 (sd =
+
+|          |
+|---------:|
+| 1.674453 |
+
+) suggesting that the idea of the bracelet and the usage itself are learnable relatively quickly. Overall, participants rated the whole experience relatively high which serves as confirmation for further developing the bracelet.
+
+# References
+
+-   Kording, K., Blohm, G., Schrater, P., & Kay, K. (2018). Appreciating diversity of goals in computational neuroscience. OSF Preprints.\
+-   Norman, G. (2010). Likert scales, levels of measurement and the "laws" of statistics. Advances in health sciences education, 15(5), 625-632.\
+-   Sullivan, G. M., & Artino, A. R., Jr (2013). Analyzing and interpreting data from likert-type scales. Journal of graduate medical education, 5(4), 541--542. <https://doi.org/10.4300/JGME-5-4-18>.
+-   de Winter, J.C.F., & Dodou, D. (2010), Five-Point Likert Items: t test versus Mann-Whitney-Wilcoxon, Practical Assessment, Research and Evaluation, 15(11).
